@@ -406,8 +406,10 @@ func TestLeaderCommitEntry2AB(t *testing.T) {
 	r.becomeCandidate()
 	r.becomeLeader()
 	//println(len(r.RaftLog.entries))
+	println("-------------------------")
 	commitNoopEntry(r, s)
-	//println(len(r.RaftLog.entries))
+	println("-------------------------")
+	println("after noop: ", r.RaftLog.committed)
 	li := r.RaftLog.LastIndex()
 	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("some data")}}})
 
@@ -415,6 +417,8 @@ func TestLeaderCommitEntry2AB(t *testing.T) {
 		r.Step(acceptAndReply(m))
 	}
 	//println(len(r.readMessages()))
+	println("after propose : ", r.RaftLog.committed)
+	println(len(r.RaftLog.entries))
 	if g := r.RaftLog.committed; g != li+1 {
 		t.Errorf("committed = %d, want %d", g, li+1)
 	}
@@ -877,6 +881,7 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm2AB(t *testing.T) {
 		{3, 3},
 	}
 	for i, tt := range tests {
+		//println("loop ----------------: ", i)
 		storage := NewMemoryStorage()
 		storage.Append(ents)
 		r := newTestRaft(1, []uint64{1, 2}, 10, 1, storage)
@@ -887,7 +892,6 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm2AB(t *testing.T) {
 		r.readMessages()
 		// propose a entry to current term
 		r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{}}})
-
 		r.Step(pb.Message{From: 2, To: 1, MsgType: pb.MessageType_MsgAppendResponse, Term: r.Term, Index: tt.index})
 		if r.RaftLog.committed != tt.wcommit {
 			t.Errorf("#%d: commit = %d, want %d", i, r.RaftLog.committed, tt.wcommit)
