@@ -206,7 +206,7 @@ func newRaft(c *Config) *Raft {
 			Next:  r.RaftLog.LastIndex() + 1,
 		}
 	}
-	r.becomeFollower(0, None)
+	r.becomeFollower(initialTerm, None)
 
 	return r
 }
@@ -235,7 +235,6 @@ func stepCandidate(r *Raft, m pb.Message) bool {
 		r.becomeCandidate()
 		r.requestVotes()
 	case pb.MessageType_MsgRequestVoteResponse:
-		//println("receive a vote")
 		r.handleVoteResponse(m)
 	}
 	return false
@@ -259,8 +258,7 @@ func stepLeader(r *Raft, m pb.Message) bool {
 func (r *Raft) handleHeartBeatResponse(m pb.Message) {
 	lastIndex := r.RaftLog.LastIndex()
 	lastTerm, _ := r.RaftLog.Term(lastIndex)
-	if !m.Reject && m.Commit < lastIndex {
-		//println("response from ", m.From)
+	if !m.Reject && r.Prs[m.From].Match < lastIndex {
 		r.msgs = append(r.msgs, pb.Message{
 			MsgType: pb.MessageType_MsgAppend,
 			From:    r.id,
@@ -274,14 +272,13 @@ func (r *Raft) handleHeartBeatResponse(m pb.Message) {
 func (r *Raft) handleAppendResponse(m pb.Message) {
 	if m.Term == r.Term {
 		if !m.Reject {
-			// update follower prs
+			// update follower pr's match and next
 			r.Prs[m.From].Match = m.Index
 			r.Prs[m.From].Next = m.Index + 1
-			//println("next =", r.Prs[m.From].Next)
-			commitTerm, _ := r.RaftLog.Term(m.Index) // only commit current term
-			//println("receive append response logterm: ", commitTerm,
-			//	"r.term : ", r.Term)
-			if commitTerm == r.Term {
+
+			// commit when current term equals current term
+			LogTerm, _ := r.RaftLog.Term(m.Index)
+			if LogTerm == r.Term {
 				r.UpdateCommit()
 			}
 		} else {
@@ -318,7 +315,6 @@ func (r *Raft) UpdateCommit() {
 		sort.Ints(matches)
 
 		NewCommitted := uint64(matches[(length-1)/2])
-		//println("new commited:",matches[length/2] - 1,NewCommitted)
 		if NewCommitted > r.RaftLog.committed {
 			r.RaftLog.committed = NewCommitted
 			r.bcastCommitted()
@@ -355,7 +351,6 @@ func (r *Raft) handleVoteResponse(m pb.Message) {
 
 	res := r.winElection()
 	if res == VoteWin {
-		//println("win election")
 		r.becomeLeader()
 	} else if res == VoteLose {
 		r.becomeFollower(r.Term, None)
@@ -382,6 +377,7 @@ func (r *Raft) winElection() VoteStatus {
 	}
 	return VotePending
 }
+
 func (r *Raft) requestAppends(m pb.Message) {
 	index := r.RaftLog.LastIndex() - uint64(len(m.Entries))
 	for _, ent := range m.Entries {
@@ -400,12 +396,9 @@ func (r *Raft) requestAppends(m pb.Message) {
 	}
 
 	for id, _ := range r.Prs {
-		//r.Prs[id].Match = index
-		//r.Prs[id].Next = index + 1
 		if id == r.id {
 			continue
 		}
-		//println("send append to", id, " index =", preIndex)
 		r.msgs = append(r.msgs, pb.Message{
 			MsgType: pb.MessageType_MsgAppend,
 			From:    r.id,
@@ -453,7 +446,6 @@ func (r *Raft) sendAppend(to uint64) {
 		preTerm, _ = r.RaftLog.Term(preIndex)
 	}
 
-	//println("noop index and term is", preIndex+1, r.Term)
 	r.msgs = append(r.msgs, pb.Message{
 		MsgType: pb.MessageType_MsgAppend,
 		From:    r.id,
@@ -470,7 +462,6 @@ func (r *Raft) sendAppend(to uint64) {
 
 func (r *Raft) commitNoop() {
 	// Your Code Here (2A).
-	//println("coming into noop")
 	r.RaftLog.entries = append(r.RaftLog.entries, pb.Entry{Index: r.RaftLog.LastIndex() + 1, Term: r.Term})
 
 	if len(r.Prs) == 1 {
@@ -507,7 +498,6 @@ func (r *Raft) sendHeartbeat(to uint64) {
 		Term:    r.Term,
 		Commit:  min(r.Prs[to].Match, r.RaftLog.committed),
 	})
-	//println(r.Prs[to].Match,r.RaftLog.committed )
 }
 
 // tick advances the internal logical clock by a single tick.
@@ -561,7 +551,6 @@ func (r *Raft) becomeCandidate() {
 	r.votes[r.id] = Grant
 
 	if len(r.Prs) == 1 {
-		//println("prs is == 1")
 		r.becomeLeader()
 	}
 }
@@ -576,7 +565,6 @@ func (r *Raft) resetVotes() {
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
-	//println("become leader")
 	if r.State != StateLeader {
 		r.State = StateLeader
 		r.step = stepLeader
@@ -592,12 +580,8 @@ func (r *Raft) becomeLeader() {
 // on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
-	//preTerm := r.Term
-	//if r.id == 2 && m.MsgType==pb.MessageType_MsgAppend{
-	//	println("receive append")
-	//}
 
-	// macth the step function for r.state
+	// set the step function for r.state
 	switch r.State {
 	case StateLeader:
 		r.step = stepLeader
@@ -611,7 +595,6 @@ func (r *Raft) Step(m pb.Message) error {
 		r.becomeFollower(m.Term, m.From)
 	}
 	if m.Term < r.Term && m.Term != 0 {
-		//println("return nil")
 		if m.MsgType == pb.MessageType_MsgRequestVote || m.MsgType == pb.MessageType_MsgAppend ||
 			m.MsgType == pb.MessageType_MsgHeartbeat {
 			resp := pb.Message{
@@ -642,8 +625,6 @@ func (r *Raft) Step(m pb.Message) error {
 			r.Vote == m.From {
 			resp.Reject = false
 			r.Vote = m.From
-			//println(r.id," vote for ", m.From)
-			//r.becomeFollower(m.Term, m.From)
 		}
 		r.msgs = append(r.msgs, resp)
 	}
@@ -673,8 +654,6 @@ func (r *Raft) handleClientMsg(m pb.Message) {
 // handleAppendEntries handle AppendEntries RPC request
 func (r *Raft) handleAppendEntries(m pb.Message) {
 	// Your Code Here (2A).
-	//println(r.id, "receive append entries")
-	//println("receive append")
 	if m.Index == 0 {
 		r.appendEntries(m)
 		r.RaftLog.committed = m.Commit
@@ -691,7 +670,6 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 				Reject:  true,
 			}
 			r.msgs = append(r.msgs, resp)
-			//println("send append response term =", m.Term)
 		} else {
 			r.appendEntries(m)
 			if m.Commit > r.RaftLog.committed {
@@ -709,11 +687,6 @@ func (r *Raft) appendAccept(m pb.Message) bool {
 func (r *Raft) handleHeartbeat(m pb.Message) {
 	// Your Code Here (2A).
 
-	//lastIndex := r.RaftLog.LastIndex()
-	//lastIndexTerm, _ := r.RaftLog.Term(lastIndex)
-	////println("follower log: ",lastIndex, lastIndexTerm)
-	//if lastIndexTerm != m.LogTerm || lastIndex != m.Index {
-	//println("send response to leader")
 	if m.Commit > r.RaftLog.committed {
 		r.RaftLog.committed = m.Commit
 	}
@@ -724,8 +697,6 @@ func (r *Raft) handleHeartbeat(m pb.Message) {
 		Term:    r.Term,
 		Commit:  r.RaftLog.committed,
 	})
-
-	//if r.id == 5 {println("response commit:", r.RaftLog.committed)}
 }
 
 // handleSnapshot handle Snapshot RPC request
@@ -754,7 +725,6 @@ func (r *Raft) appendEntries(m pb.Message) {
 
 	for _, entry := range m.Entries { // append entries
 		if entry.Index <= r.RaftLog.LastIndex() { // overlap entries
-			//println("overlap index is: ", entry.Index)
 			term, _ := r.RaftLog.Term(entry.Index)
 			if entry.Term != term {
 				conflict = true
@@ -763,7 +733,6 @@ func (r *Raft) appendEntries(m pb.Message) {
 				r.RaftLog.entries[entry.Index-firstIndex] = *entry
 			}
 		} else {
-			//println("append index is: ", entry.Index)
 			r.RaftLog.entries = append(r.RaftLog.entries, *entry)
 		}
 	}
@@ -783,8 +752,4 @@ func (r *Raft) appendEntries(m pb.Message) {
 		Index:   m.Index + uint64(len(m.Entries)),
 	})
 
-	// update the committed
-	//if m.Commit > r.RaftLog.committed{
-	//	r.RaftLog.committed = min(m.Commit, m.Index + uint64(len(m.Entries)))
-	//}
 }

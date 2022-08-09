@@ -81,7 +81,7 @@ func NewRawNode(config *Config) (*RawNode, error) {
 	prevss := SoftState{}
 	prevhs, _, err := config.Storage.InitialState()
 	newRaftNode := RawNode{
-		Raft: NewRaft,
+		Raft:          NewRaft,
 		prevHardState: prevhs,
 		prevSoftState: &prevss,
 	}
@@ -153,10 +153,29 @@ func (rn *RawNode) Step(m pb.Message) error {
 // Ready returns the current point-in-time state of this RawNode.
 func (rn *RawNode) Ready() Ready {
 	// Your Code Here (2A).
+	hs := pb.HardState{
+		Term:   rn.Raft.Term,
+		Commit: rn.Raft.RaftLog.committed,
+		Vote:   rn.Raft.Vote,
+	}
+	if isHardStateEqual(hs, rn.prevHardState) {
+		hs = pb.HardState{}
+	}
+
+	ss := &SoftState{
+		Lead:      rn.Raft.Lead,
+		RaftState: rn.Raft.State,
+	}
+	if isSoftStateEqual(*ss, *rn.prevSoftState) {
+		ss = nil
+	}
+
 	return Ready{
-		Entries: rn.Raft.RaftLog.unstableEntries(),
+		Entries:          rn.Raft.RaftLog.unstableEntries(),
 		CommittedEntries: rn.Raft.RaftLog.nextEnts(),
-		Messages: rn.Raft.msgs,
+		Messages:         rn.Raft.msgs,
+		HardState:        hs,
+		SoftState:        ss,
 	}
 }
 
@@ -166,7 +185,7 @@ func (rn *RawNode) HasReady() bool {
 	//println(len(rn.Raft.RaftLog.unstableEntries() ),
 	//	len(rn.Raft.RaftLog.nextEnts()), rn.Raft.msgs==nil)
 	if len(rn.Raft.RaftLog.unstableEntries()) == 0 &&
-		len(rn.Raft.RaftLog.nextEnts()) == 0 && rn.Raft.msgs==nil{
+		len(rn.Raft.RaftLog.nextEnts()) == 0 && rn.Raft.msgs == nil {
 		return false
 	}
 	return true
@@ -179,7 +198,7 @@ func (rn *RawNode) Advance(rd Ready) {
 	if len(rd.Entries) > 0 {
 		rn.Raft.RaftLog.stabled = rd.Entries[len(rd.Entries)-1].Index
 	}
-	if len(rd.CommittedEntries)>0 {
+	if len(rd.CommittedEntries) > 0 {
 		rn.Raft.RaftLog.applied = rd.CommittedEntries[len(rd.CommittedEntries)-1].Index
 	}
 }

@@ -405,11 +405,7 @@ func TestLeaderCommitEntry2AB(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2, 3}, 10, 1, s)
 	r.becomeCandidate()
 	r.becomeLeader()
-	//println(len(r.RaftLog.entries))
-	println("-------------------------")
 	commitNoopEntry(r, s)
-	println("-------------------------")
-	println("after noop: ", r.RaftLog.committed)
 	li := r.RaftLog.LastIndex()
 	r.Step(pb.Message{From: 1, To: 1, MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{{Data: []byte("some data")}}})
 
@@ -417,8 +413,6 @@ func TestLeaderCommitEntry2AB(t *testing.T) {
 		r.Step(acceptAndReply(m))
 	}
 	//println(len(r.readMessages()))
-	println("after propose : ", r.RaftLog.committed)
-	println(len(r.RaftLog.entries))
 	if g := r.RaftLog.committed; g != li+1 {
 		t.Errorf("committed = %d, want %d", g, li+1)
 	}
